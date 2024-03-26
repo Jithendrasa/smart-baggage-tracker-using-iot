@@ -1,0 +1,72 @@
+import time
+import serial
+
+# GSM module configuration
+GSM_PORT = '/dev/ttyGSM'
+BAUDRATE = 9600
+
+# GPS module configuration
+GPS_PORT = '/dev/ttyGPS'
+LAT_THRESHOLD = 30.0  # Example latitude threshold
+LON_THRESHOLD = -80.0  # Example longitude threshold
+
+# User's phone number
+USER_NUMBER = "+1234567890"
+
+def initialize_modules():
+    # Initialize GSM module
+    gsm_serial = serial.Serial(GSM_PORT, BAUDRATE, timeout=1)
+    gsm_serial.write(b'AT\r')
+    response = gsm_serial.readall().decode('utf-8')
+    if 'OK' not in response:
+        raise Exception("Failed to initialize GSM module")
+    
+    # Initialize GPS module
+    gps_serial = serial.Serial(GPS_PORT, BAUDRATE, timeout=1)
+    gps_serial.write(b'AT\r')
+    response = gps_serial.readall().decode('utf-8')
+    if 'OK' not in response:
+        raise Exception("Failed to initialize GPS module")
+    
+    return gsm_serial, gps_serial
+
+def send_sms(gsm_serial, destination_number, message):
+    gsm_serial.write('AT+CMGF=1\r\n')
+    time.sleep(1)
+    gsm_serial.write('AT+CMGS="{}"\r\n'.format(destination_number))
+    time.sleep(1)
+    gsm_serial.write(message + chr(26))
+    time.sleep(1)
+    response = gsm_serial.readall().decode('utf-8')
+    if 'OK' not in response:
+        print("Failed to send SMS")
+
+def read_gps_coordinates(gps_serial):
+    gps_serial.write(b'AT+CGPSINF=0\r\n')
+    time.sleep(1)
+    response = gps_serial.readall().decode('utf-8')
+    if 'CGPSINF' in response:
+        coordinates = response.split(',')[2:4]
+        return coordinates
+    else:
+        return None
+
+def track_luggage(gsm_serial, gps_serial):
+    while True:
+        coordinates = read_gps_coordinates(gps_serial)
+        if coordinates:
+            latitude, longitude = map(float, coordinates)
+            if latitude > LAT_THRESHOLD or longitude > LON_THRESHOLD:
+                message = "Your luggage has moved beyond the designated area. Current coordinates: Latitude {}, Longitude {}".format(latitude, longitude)
+                send_sms(gsm_serial, USER_NUMBER, message)
+            time.sleep(60)  # Check coordinates every 60 seconds
+        else:
+            print("Failed to obtain GPS coordinates")
+            time.sleep(10)  # Retry after 10 seconds
+
+if __name__ == "__main__":
+    try:
+        gsm_serial, gps_serial = initialize_modules()
+        track_luggage(gsm_serial, gps_serial)
+    except Exception as e:
+        print("Error:", e)
